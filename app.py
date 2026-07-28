@@ -1,3 +1,4 @@
+import os
 import logging                                              # NEW
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -7,7 +8,7 @@ logging.basicConfig(level=logging.INFO,                     # NEW: set up loggin
                     format="%(asctime)s  %(levelname)s  %(message)s")
 logger = logging.getLogger("inference-service")             # NEW
 
-OLLAMA_URL = "http://localhost:11434/v1/chat/completions"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/v1/chat/completions")
 MODEL = "qwen2.5:1.5b"
 
 app = FastAPI(title="Inference Service")
