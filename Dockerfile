@@ -14,5 +14,5 @@ COPY app.py .
 # The service listens on port 8000
 EXPOSE 8000
 
-# Run the server with uvicorn, bound to 0.0.0.0 so it's reachable from outside the container
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run uvicorn, binding to $PORT if the host platform sets one (cloud), else 8000 (local)
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
