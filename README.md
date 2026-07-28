@@ -1,42 +1,73 @@
 # LLM Inference Service
 
-A small **OpenAI-compatible LLM inference microservice** built with **FastAPI**, serving a
-**local quantized model** (Qwen2.5-1.5B) through **Ollama** on a 4 GB RTX 3050.
+An **OpenAI-compatible LLM inference microservice** (FastAPI + Docker). The *same code* serves
+either a **local quantized model** on a 4 GB GPU (via Ollama) or a **hosted model** (Groq) in the
+cloud — the backend is chosen entirely by environment config.
 
-Takes a user message over HTTP, runs it through a locally-hosted model, and returns the reply —
-with request logging and graceful error handling.
+🔗 **Live demo:** https://llm-inference-services.onrender.com/docs
+
+Built from scratch to learn applied inference engineering: serving models behind an API,
+containerization, cloud deployment, and the OpenAI-compatible standard that makes backends swappable.
 
 ## Architecture
 ```
-  Client ──HTTP──▶  FastAPI service  ──HTTP──▶  Ollama (local model server)  ──▶  Qwen2.5-1.5B on GPU
-                    (this repo)                  OpenAI-compatible endpoint
+Client ──HTTP──▶ FastAPI service ──HTTP──▶ model backend
+                 (this repo)               ├─ local:  Ollama → Qwen2.5-1.5B on RTX 3050 (4 GB)
+                                           └─ cloud:  Groq  → Llama-3.3-70B
 ```
-The service is **backend-agnostic**: because both Ollama and hosted APIs (Groq, etc.) speak the
-OpenAI-compatible format, the model backend can be swapped by changing one URL.
+Both backends speak the OpenAI-compatible API, so switching between "my GPU" and "the cloud" is a
+single env var — no code change. `MODEL_URL`, `MODEL`, and `API_KEY` drive everything.
 
 ## Endpoints
-- `GET /health` — liveness check → `{"status": "ok"}`
-- `GET /info` — which model / backend is being served
-- `POST /chat` — send `{"message": "..."}`, get back `{"reply": "..."}`
+- `GET /health` — liveness → `{"status": "ok"}`
+- `GET /info` — active model + backend
+- `POST /chat` — `{"message": "..."}` → `{"reply": "..."}`
 
-## Run locally
+## Measurements (live, Groq-backed, Render free tier)
+| Metric | Value |
+|---|---|
+| `/health` latency (warm) | ~0.35 s |
+| `/chat` latency (warm) | ~0.9–1.1 s end-to-end |
+| Cold start (after ~15 min idle) | ~30–60 s (free tier spins down) |
+| Memory footprint | thin proxy — small (see Render metrics) |
+
+*`/chat` latency is dominated by network hops (client → Render → Groq → back), not raw generation.*
+
+## Run locally (your own GPU)
 ```bash
-# 1. serve a local model
 ollama pull qwen2.5:1.5b
-
-# 2. run the service
 pip install -r requirements.txt
-fastapi dev app.py
+fastapi dev app.py            # → http://127.0.0.1:8000/docs
+```
 
-# 3. open the interactive docs
-#    http://127.0.0.1:8000/docs
+## Run in Docker (local model)
+```bash
+docker build -t inference-service .
+docker run --rm -p 8000:8000 \
+  --add-host=host.docker.internal:host-gateway \
+  -e MODEL_URL=http://host.docker.internal:11434/v1/chat/completions \
+  inference-service
+```
+
+## Deploy (cloud, Groq-backed)
+Set env vars and deploy the Docker image to any host (Render free tier used here):
+```
+MODEL_URL = https://api.groq.com/openai/v1/chat/completions
+MODEL     = llama-3.3-70b-versatile
+API_KEY   = <your Groq key>
 ```
 
 ## Features
-- Local model inference on a consumer GPU (4 GB)
-- Structured request / error logging
-- Graceful failure handling (clean 503 if the model server is down)
-- Auto-generated interactive API docs (FastAPI `/docs`)
+- One codebase runs a **local GPU model** or a **cloud model** (OpenAI-compatible backend swap)
+- **Containerized** (Docker) and **deployed** to a public URL
+- Structured logging + graceful error handling (clean `503` on backend failure)
+- Auto-generated interactive API docs (`/docs`)
 
 ## Stack
-FastAPI · pydantic · httpx · Ollama · Qwen2.5-1.5B (GGUF)
+FastAPI · pydantic · httpx · Docker · Ollama · Groq
+
+## Notes / what I learned
+Built while learning applied inference engineering. Key takeaways: the OpenAI-compatible API as a
+backend-swap layer; container↔host networking (why `localhost` inside a container isn't the host);
+and honest debugging — a single "model unavailable" error that turned out to be **three stacked bugs**
+(hardcoded URL, wrong Ollama bind address, a broken run command).

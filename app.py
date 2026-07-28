@@ -1,52 +1,39 @@
 import os
-import logging
+import logging                                              # NEW
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-logging.basicConfig(level=logging.INFO,
+logging.basicConfig(level=logging.INFO,                     # NEW: set up logging
                     format="%(asctime)s  %(levelname)s  %(message)s")
-logger = logging.getLogger("inference-service")
+logger = logging.getLogger("inference-service")             # NEW
 
-# --- config (all from env, so the SAME code runs local-GPU or cloud) ---
-# local default = Ollama on your machine; override for a hosted backend (e.g. Groq)
-MODEL_URL = os.environ.get("MODEL_URL", "http://localhost:11434/v1/chat/completions")
-MODEL = os.environ.get("MODEL", "qwen2.5:1.5b")
-API_KEY = os.environ.get("API_KEY", "")        # optional; hosted backends (Groq) need this
-
-
-def auth_headers():
-    """Send an Authorization header only if an API key is configured."""
-    return {"Authorization": f"Bearer {API_KEY}"} if API_KEY else {}
-
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/v1/chat/completions")
+MODEL = "qwen2.5:1.5b"
 
 app = FastAPI(title="Inference Service")
 
-
 class ChatRequest(BaseModel):
     message: str
-
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-
-@app.get("/info")
+@app.get("/info")                                           # NEW: what am I serving?
 def info():
-    return {"model": MODEL, "endpoint": MODEL_URL, "uses_auth": bool(API_KEY)}
-
+    return {"model": MODEL, "backend": "ollama", "endpoint": OLLAMA_URL}
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    logger.info(f"/chat request: {req.message[:60]!r}")
+    logger.info(f"/chat request: {req.message[:60]!r}")     # NEW: log the request
     payload = {"model": MODEL, "messages": [{"role": "user", "content": req.message}]}
     try:
-        response = httpx.post(MODEL_URL, json=payload, headers=auth_headers(), timeout=60.0)
+        response = httpx.post(OLLAMA_URL, json=payload, timeout=30.0)
         response.raise_for_status()
     except httpx.HTTPError:
-        logger.error("model backend unreachable")
-        raise HTTPException(status_code=503, detail="Model backend unavailable")
+        logger.error("Ollama unreachable")                  # NEW: log the failure
+        raise HTTPException(status_code=503, detail="Model server unavailable (is Ollama running?)")
     reply = response.json()["choices"][0]["message"]["content"]
-    logger.info(f"/chat reply: {len(reply)} chars")
+    logger.info(f"/chat reply: {len(reply)} chars")         # NEW: log the result
     return {"reply": reply}
